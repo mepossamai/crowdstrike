@@ -1,0 +1,156 @@
+name: Monitoramento de Acessos para domínios de IA
+updateFrequency: never
+timeSelector: {}
+sharedTimeInterval:
+  enabled: true
+  isLive: false
+  start: 2d
+widgets:
+  4529057e-d1ed-45fd-b2f5-6a331c9a6cbd:
+    x: 6
+    y: 5
+    height: 5
+    queryString: |-
+      #event_simpleName=DnsRequest DomainName=*?dominios
+      | groupBy([ComputerName, aid], function=([count(DomainName, as=DominiosUnicos, distinct=true), count(as=Requisicoes)]))
+      | sort(Requisicoes, order=desc, limit=25)
+    end: now
+    start: 2d
+    width: 6
+    options:
+      cell-overflow: wrap-text
+      column-overflow: truncate
+      configured-columns: {}
+      row-numbers-enabled: false
+    visualization: table-view
+    title: Top Hosts (Endpoints) que Mais Acessam
+    isLive: false
+    type: query
+  f1850201-9ca0-4f4d-bbac-496e396aae46:
+    x: 4
+    y: 0
+    height: 2
+    queryString: |-
+      #event_simpleName=DnsRequest DomainName=*?dominios
+      | count(DomainName, as=TotalDominios, distinct=true)
+    end: now
+    start: 2d
+    width: 4
+    options:
+      default: {}
+    visualization: single-value
+    title: Total de Subdomínios Distintos Acessados
+    isLive: false
+    type: query
+  55a207a7-a825-4177-bea8-a0753c7ff0a6:
+    x: 0
+    y: 5
+    height: 5
+    queryString: |-
+      #event_simpleName=DnsRequest DomainName=*?dominios
+      | groupBy([DomainName], function=([count(aid, as=Hosts, distinct=true), count(as=Requisicoes)]))
+      | sort(Hosts, order=desc, limit=20)
+    end: now
+    start: 2d
+    width: 6
+    options:
+      cell-overflow: wrap-text
+      column-overflow: truncate
+      configured-columns: {}
+      row-numbers-enabled: false
+    visualization: table-view
+    title: Top Subdomínios Acessados
+    isLive: false
+    type: query
+  37df7893-aa37-4e3a-9aaf-c5318bb994d2:
+    x: 0
+    y: 0
+    height: 2
+    queryString: |-
+      #event_simpleName=DnsRequest
+      | DomainName=*?dominios
+      | count(ComputerName, as=TotalHosts, distinct=true)
+    end: now
+    start: 2d
+    width: 4
+    options:
+      default: {}
+    visualization: single-value
+    title: Total de Hosts Únicos Acessando
+    isLive: false
+    type: query
+  925f8bce-86e6-4131-b65f-e58e9846591a:
+    x: 0
+    y: 2
+    height: 3
+    queryString: |-
+      #event_simpleName=DnsRequest DomainName=*?dominios
+      | timeChart(span=1h, function=count(aid, as=Hosts, distinct=true))
+    end: now
+    start: 2d
+    width: 12
+    options:
+      connect-points: false
+      imputation: none
+    visualization: time-chart
+    title: Linha do Tempo de Acessos
+    isLive: false
+    type: query
+  434adbc8-4ee1-4ec5-a5e2-e18b05126584:
+    x: 0
+    y: 10
+    height: 4
+    queryString: |-
+      #event_simpleName=DnsRequest DomainName=*?dominios
+      | groupBy([DomainName, ComputerName, UserName, FileName], function=([count(as=Requisicoes), max(@timestamp, as=UltimoAcesso)]))
+      | UltimoAcesso := formatTime(format="%Y-%m-%d %H:%M:%S", field=UltimoAcesso)
+      | sort(Requisicoes, order=desc)
+    end: now
+    start: 2d
+    width: 12
+    options:
+      cell-overflow: wrap-text
+      column-overflow: truncate
+      configured-columns: {}
+      row-numbers-enabled: false
+    visualization: table-view
+    title: Detalhamento Completo
+    isLive: false
+    type: query
+  482bb4e8-8e46-458b-adac-6706539e9906:
+    x: 8
+    y: 0
+    height: 2
+    queryString: |-
+      #event_simpleName=DnsRequest DomainName=*?dominios
+      | count(as=TotalRequisicoes)
+    end: now
+    start: 2d
+    width: 4
+    options:
+      default: {}
+    visualization: single-value
+    title: Total de Requisições DNS
+    isLive: false
+    type: query
+$schema: https://schemas.humio.com/dashboard/v0.23.0
+parameters:
+  dominios:
+    label: Plataformas de IA
+    order: 50
+    values:
+      lovable.dev: Lovable - dev
+      replit.com: Replit
+      v0.dev: v0
+      bolt.new: Bolt
+      base44.com: Base44
+      lovable.app: Lovable - app
+      cursor.com: Cursor
+      cursor.sh: Cursor - legado
+      windsurf.com: Windsurf
+      codeium.com: Codeium
+      devin.ai: Devin
+      cognition.ai: Cognition Labs
+    type: list
+    defaultValue: lovable.app
+    width: 1
