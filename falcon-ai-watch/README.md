@@ -15,7 +15,7 @@ Plataformas de geração de aplicações com IA (Lovable, Replit, v0, Bolt.new, 
 - Geração de dependências com vulnerabilidades não revisadas
 - Criação de aplicações fora do pipeline corporativo de DevSecOps
 
-Este dashboard fornece à equipe de Segurança da Informação visibilidade completa sobre quais hosts e usuários acessam essas plataformas, com filtro selecionável por plataforma e detalhamento por subdomínio, processo e usuário.
+Este dashboard fornece à equipe de Segurança da Informação visibilidade completa sobre quais hosts e usuários acessam essas plataformas, com filtro selecionável por plataforma e detalhamento por subdomínio, processo e usuário interativo logado.
 
 ---
 
@@ -40,7 +40,7 @@ Novas plataformas podem ser adicionadas facilmente editando o parâmetro `domini
 
 ## Estrutura do dashboard
 
-O dashboard contém 7 widgets organizados em 4 camadas visuais:
+O dashboard contém 8 widgets organizados em 4 camadas visuais:
 
 **Camada 1 — KPIs executivos (topo)**
 - Total de Hosts Únicos Acessando
@@ -51,11 +51,12 @@ O dashboard contém 7 widgets organizados em 4 camadas visuais:
 - Linha do Tempo de Acessos (hosts únicos por hora)
 
 **Camada 3 — Rankings (lado a lado)**
-- Top Subdomínios Acessados
+- Top 20 - Subdomínios Acessados
 - Top Hosts (Endpoints) que Mais Acessam
+- Acessos por Usuário (ranking de usuários humanos por plataforma)
 
 **Camada 4 — Detalhamento granular**
-- Detalhamento Completo (domínio, host, usuário, processo, requisições, último acesso)
+- Detalhamento Completo (domínio, usuário logado, host, processo, requisições e último acesso)
 
 ---
 
@@ -65,13 +66,21 @@ O dashboard possui um parâmetro do tipo **FixedList** chamado `Plataformas de I
 
 ---
 
+## Identificação de usuário interativo
+
+Um diferencial deste dashboard é a correlação entre eventos `DnsRequest` (que registram apenas o usuário do processo, frequentemente `SYSTEM`) e os eventos `UserLogon` / `UserIdentity` (que registram o usuário humano interativo logado no host). Isso permite responder à pergunta crítica: **"quem foi a pessoa por trás desse acesso?"** — informação essencial para conversas com gestores e RH em casos de Shadow IT.
+
+A correlação é feita via `defineTable` aninhado nas queries dos widgets **"Acessos por Usuário"** e **"Detalhamento Completo"**.
+
+---
+
 ## Instalação
 
 ### Pré-requisitos
 
 - Acesso ao **CrowdStrike Falcon Next-Gen SIEM**
 - Permissão para criar e importar dashboards
-- Sensor Falcon coletando eventos `DnsRequest` dos hosts (padrão na maioria das tenants)
+- Sensor Falcon coletando eventos `DnsRequest`, `UserLogon` e `UserIdentity` dos hosts (padrão na maioria das tenants)
 
 ### Passo a passo
 
@@ -94,7 +103,7 @@ O dashboard possui um parâmetro do tipo **FixedList** chamado `Plataformas de I
 1. Abra o dashboard.
 2. No topo, selecione a plataforma desejada no dropdown **"Plataformas de IA"**.
 3. Clique em **Apply**.
-4. Os 7 widgets atualizam automaticamente refletindo apenas a plataforma escolhida.
+4. Os 8 widgets atualizam automaticamente refletindo apenas a plataforma escolhida.
 5. Ajuste a janela de tempo no canto superior direito conforme necessário.
 
 ---
@@ -125,12 +134,46 @@ A sintaxe `?dominios` (com uma única interrogação no início) é a forma como
 | sort(Requisicoes, order=desc, limit=25)
 ```
 
+### Exemplo — Acessos por Usuário (com identificação de usuário interativo)
+
+```
+defineTable(
+  name="logon_lookup",
+  query={
+    #event_simpleName=/^(UserLogon|UserIdentity)$/
+    | UserName=*
+    | groupBy([ComputerName], function=selectLast([UserName]))
+    | rename(field=UserName, as=LoggedUser)
+  },
+  include=[ComputerName, LoggedUser]
+)
+| #event_simpleName=DnsRequest DomainName=*?dominios
+| match(table="logon_lookup", field=ComputerName, strict=false)
+| default(field=LoggedUser, value="-")
+| LoggedUser!="-"
+| groupBy([LoggedUser, DomainName], function=count(as=Acessos))
+| sort(Acessos, order=desc)
+```
+
 ### Exemplo — Detalhamento completo
 
 ```
-#event_simpleName=DnsRequest DomainName=*?dominios
+defineTable(
+  name="logon_lookup",
+  query={
+    #event_simpleName=/^(UserLogon|UserIdentity)$/
+    | UserName=*
+    | groupBy([ComputerName], function=selectLast([UserName]))
+    | rename(field=UserName, as=LoggedUser)
+  },
+  include=[ComputerName, LoggedUser]
+)
+| #event_simpleName=DnsRequest DomainName=*?dominios
 | groupBy([DomainName, ComputerName, UserName, FileName], function=([count(as=Requisicoes), max(@timestamp, as=UltimoAcesso)]))
+| match(table="logon_lookup", field=ComputerName, strict=false)
 | UltimoAcesso := formatTime(format="%Y-%m-%d %H:%M:%S", field=UltimoAcesso)
+| default(field=LoggedUser, value="-")
+| table([DomainName, LoggedUser, ComputerName, UserName, FileName, Requisicoes, UltimoAcesso])
 | sort(Requisicoes, order=desc)
 ```
 
@@ -142,6 +185,7 @@ A sintaxe `?dominios` (com uma única interrogação no início) é a forma como
 - **DNS sobre HTTPS (DoH)** — navegadores configurados para usar DoH (Chrome, Firefox, Edge) **não geram eventos `DnsRequest` visíveis ao sensor**. Em organizações com DoH habilitado, considere também ingerir logs do proxy/firewall corporativo.
 - **VPN corporativa com DNS interno** — se o tráfego DNS é direcionado a resolvers internos, garanta que esses resolvers também estejam sendo monitorados.
 - **Sensor offline** — eventos só são reportados quando o host está online ou quando reconecta com a Falcon Cloud. Períodos de offline podem aparecer como gaps na linha do tempo.
+- **Identificação de usuário interativo** — em hosts que não receberam novo `UserLogon` ou `UserIdentity` na janela selecionada (máquinas que ficam ligadas há semanas, servidores), o usuário aparece como `-`. Ampliar a janela de tempo do dashboard pode reduzir esses casos.
 - **GitHub Copilot** — não é monitorado por este dashboard via DNS porque o tráfego passa por `github.com` (compartilhado com uso normal do GitHub). Para monitorar Copilot, considere fontes alternativas como GitHub Enterprise audit logs ou eventos de processo.
 
 ---
